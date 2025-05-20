@@ -18,6 +18,10 @@ This Streamlit-based app helps researchers and students extract experimental met
 
 ## 📸 Screenshots
 
+| Userflow Diagram |
+|------------------|
+| ![search](docs/UFD_methodmap.png) |
+
 | Search Input | Table + Graph | Summary View |
 |--------------|---------------|---------------|
 | ![search](docs/search.png) | ![graph](docs/graph.png) | ![summary](docs/summary.png) |
