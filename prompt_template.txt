@@ -1,0 +1,14 @@
+You are an expert scientific assistant.
+
+Given the following research paper abstract and method section, extract the following fields in a structured table format:
+
+- Method Name
+- Software/Tools Used
+- Dataset Name (if any)
+- Evaluation Metrics
+- Domain or Subfield
+
+Respond in JSON format.
+
+Text: 
+{paper_text}
