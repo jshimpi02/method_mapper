@@ -4,6 +4,7 @@ import pandas as pd
 import subprocess
 import json
 import re
+import fitz  # PyMuPDF
 
 def search_semantic_scholar(goal, limit=5):
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={goal}&fields=title,abstract,url&limit={limit}"
@@ -76,7 +77,6 @@ def extract_methods_table(goal):
     try:
         data = json.loads(output.strip())
     except json.JSONDecodeError:
-        # Fallback: extract first valid-looking JSON list from output
         match = re.search(r"\[\s*{.*?}\s*\]", output, re.DOTALL)
         if match:
             json_text = match.group(0)
@@ -90,3 +90,48 @@ def extract_methods_table(goal):
             data = []
 
     return pd.DataFrame(data)
+
+def extract_methods_from_pdf(uploaded_file):
+    try:
+        with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
+            text = "\n".join([page.get_text() for page in doc])
+        if len(text.strip()) < 100:
+            print("PDF contains too little readable text.")
+            return pd.DataFrame([])
+
+        prompt = f"""
+You are an expert scientific assistant. Given the following research paper text, extract a structured table with the following fields:
+- Method
+- Tools/Software
+- Dataset
+- Metrics
+- Subfield/Domain
+
+Respond in valid JSON list format like:
+[
+  {{"Method": ..., "Tools": ..., "Dataset": ..., "Metrics": ..., "Domain": ...}},
+  ...
+]
+
+Only output the JSON list.
+
+Text:
+{text[:4000]}
+"""  # Truncate to 4000 chars
+
+        output = call_llama(prompt)
+        print("LLaMA PDF Output:", output)
+
+        try:
+            return pd.DataFrame(json.loads(output.strip()))
+        except json.JSONDecodeError:
+            match = re.search(r"\[\s*{.*?}\s*\]", output, re.DOTALL)
+            if match:
+                return pd.DataFrame(json.loads(match.group(0)))
+            else:
+                print("No valid JSON array found in PDF output.")
+                return pd.DataFrame([])
+
+    except Exception as e:
+        print(f"PDF processing error: {e}")
+        return pd.DataFrame([])
