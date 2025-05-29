@@ -4,3 +4,4 @@ plotly
 networkx
 pyvis
 PyMuPDF
+python-dotenv
