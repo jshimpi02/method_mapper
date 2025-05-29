@@ -1,5 +1,6 @@
 # generator.py — now using Hugging Face Inference API (Mistral)
 import os
+import pandas as pd
 import requests
 from dotenv import load_dotenv
 
