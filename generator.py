@@ -1,137 +1,68 @@
-# generator.py
+# generator.py — now using Hugging Face Inference API (Mistral)
+import os
 import requests
-import pandas as pd
-import subprocess
-import json
-import re
-import fitz  # PyMuPDF
+from dotenv import load_dotenv
 
-def search_semantic_scholar(goal, limit=5):
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={goal}&fields=title,abstract,url&limit={limit}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        return [paper['abstract'] for paper in data.get('data', []) if paper.get('abstract')]
-    else:
-        print("Semantic Scholar API error:", response.status_code, response.text)
-        return []
+load_dotenv()
+HUGGINGFACE_API_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
+MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
+HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_TOKEN}"}
 
-def format_prompt(abstracts):
-    combined_text = "\n\n".join(abstracts)
-    return f"""
-You are an expert scientific assistant. Given the following research abstracts, extract a structured table with the following fields:
-- Method
-- Tools/Software
-- Dataset
-- Metrics
-- Subfield/Domain
+def query_huggingface(prompt):
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "temperature": 0.7,
+            "max_new_tokens": 512,
+            "return_full_text": False
+        }
+    }
+    response = requests.post(API_URL, headers=HEADERS, json=payload)
+    response.raise_for_status()
+    return response.json()[0]["generated_text"]
 
-Respond in valid JSON list format like:
+
+def extract_methods_table(research_goal):
+    prompt = f"""
+Given the research goal: "{research_goal}", extract a table of:
+1. Method used
+2. Tools or software (if mentioned)
+3. Datasets (if mentioned)
+4. Evaluation metrics (e.g., accuracy, F1)
+Return a structured JSON list like this:
 [
-  {{"Method": ..., "Tools": ..., "Dataset": ..., "Metrics": ..., "Domain": ...}},
+  {{"Method": "...", "Tools": "...", "Dataset": "...", "Metrics": "..."}},
   ...
 ]
-
-Only output the JSON list.
-
-Abstracts:
-{combined_text}
 """
-
-def call_llama(prompt):
     try:
-        process = subprocess.Popen(
-            ["ollama", "run", "llama3"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = process.communicate(input=prompt, timeout=120)
-
-        if stderr:
-            print("LLaMA stderr:", stderr)
-
-        return stdout
+        raw_output = query_huggingface(prompt)
+        table = eval(raw_output.strip())  # ⚠️ Assumes trusted JSON-like output
+        return pd.DataFrame(table)
     except Exception as e:
-        print(f"Error calling LLaMA: {e}")
-        return "[]"
+        print("Failed to extract methods table:", e)
+        return pd.DataFrame()
 
-def extract_methods_table(goal):
-    abstracts = search_semantic_scholar(goal)
-    print(f"Fetched {len(abstracts)} abstracts.")
-    if not abstracts:
-        return pd.DataFrame([])
 
-    prompt = format_prompt(abstracts)
-    print("=== Prompt Sent to LLaMA ===")
-    print(prompt)
-    print("=============================")
+def extract_methods_from_pdf(file):
+    import fitz  # PyMuPDF
+    import pandas as pd
 
-    output = call_llama(prompt)
+    text = ""
+    with fitz.open(stream=file.read(), filetype="pdf") as doc:
+        for page in doc:
+            text += page.get_text()
 
-    print("---- LLaMA Raw Output ----")
-    print(output)
-    print("--------------------------")
-
+    prompt = f"""
+Extract methods used in this study from the following text:
+{text[:3000]}...
+Return a structured JSON list with Method, Tools, Dataset, Metrics.
+"""
     try:
-        data = json.loads(output.strip())
-    except json.JSONDecodeError:
-        match = re.search(r"\[\s*{.*?}\s*\]", output, re.DOTALL)
-        if match:
-            json_text = match.group(0)
-            try:
-                data = json.loads(json_text)
-            except Exception as e:
-                print("Fallback JSON parse error:", e)
-                data = []
-        else:
-            print("No valid JSON array found in output.")
-            data = []
-
-    return pd.DataFrame(data)
-
-def extract_methods_from_pdf(uploaded_file):
-    try:
-        with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
-            text = "\n".join([page.get_text() for page in doc])
-        if len(text.strip()) < 100:
-            print("PDF contains too little readable text.")
-            return pd.DataFrame([])
-
-        prompt = f"""
-You are an expert scientific assistant. Given the following research paper text, extract a structured table with the following fields:
-- Method
-- Tools/Software
-- Dataset
-- Metrics
-- Subfield/Domain
-
-Respond in valid JSON list format like:
-[
-  {{"Method": ..., "Tools": ..., "Dataset": ..., "Metrics": ..., "Domain": ...}},
-  ...
-]
-
-Only output the JSON list.
-
-Text:
-{text[:4000]}
-"""  # Truncate to 4000 chars
-
-        output = call_llama(prompt)
-        print("LLaMA PDF Output:", output)
-
-        try:
-            return pd.DataFrame(json.loads(output.strip()))
-        except json.JSONDecodeError:
-            match = re.search(r"\[\s*{.*?}\s*\]", output, re.DOTALL)
-            if match:
-                return pd.DataFrame(json.loads(match.group(0)))
-            else:
-                print("No valid JSON array found in PDF output.")
-                return pd.DataFrame([])
-
+        raw_output = query_huggingface(prompt)
+        table = eval(raw_output.strip())
+        return pd.DataFrame(table)
     except Exception as e:
-        print(f"PDF processing error: {e}")
-        return pd.DataFrame([])
+        print("PDF extraction failed:", e)
+        return pd.DataFrame()
