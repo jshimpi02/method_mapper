@@ -3,9 +3,10 @@ import os
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
-HUGGINGFACE_API_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
+HUGGINGFACE_API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
 MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_TOKEN}"}
